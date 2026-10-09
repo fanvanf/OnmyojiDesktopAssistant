@@ -2,6 +2,12 @@
 
 ## 最近更新
 
+### 优化
+
+- 文字识别引擎由`PaddleOCR`替换为`[RapidOCR](https://github.com/RapidAI/RapidOCR)`，移除`PaddlePaddle`依赖，改为`ONNX Runtime`推理
+- 文字识别模型使用`PP-OCRv6 small`，移除随包分发的默认模型，打包体积减少
+- OCR模型统一存放于`models`目录并采用`sha256`校验，缺失时自动下载
+
 ## v2.1.6 - 2026-10-05
 
 ### 新功能

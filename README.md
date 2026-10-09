@@ -121,25 +121,29 @@
 
     可选：GPU 安装（手动，非默认）
 
-    如果需要使用 GPU 加速，请在安装前先卸载 CPU 版 Paddle（如果已安装）：
+    GPU 加速依赖 `onnxruntime-gpu`，它与 CPU 版 `onnxruntime` 占用相同文件，**不能共存**。
+    请先卸载 CPU 版，再安装 GPU 版：
 
     ```bash
     # 使用 uv 卸载 CPU 版本
-    uv pip uninstall -y paddlepaddle
+    uv pip uninstall -y onnxruntime
 
     # 使用 pip 卸载 CPU 版本
-    pip uninstall -y paddlepaddle
+    pip uninstall -y onnxruntime
     ```
 
-    根据你的 CUDA 版本安装 paddlepaddle-gpu（以 cu129 为例），更多信息请参考 PaddleOCR 官方文档：https://www.paddleocr.ai/latest/quick_start.html#1
+    然后安装 `requirements-gpu.txt`（`onnxruntime-gpu` 版本需与本机 CUDA/cuDNN 匹配，
+    参考 https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html ）：
 
     ```bash
     # 使用 uv 安装 gpu 依赖
-    uv pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
+    uv pip install -r requirements-gpu.txt
 
     # 使用 pip 安装 gpu 依赖
-    pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
+    pip install -r requirements-gpu.txt
     ```
+
+    安装后需在 `src/utils/rapidocr.py` 中将 `EngineConfig.onnxruntime.use_cuda` 设为 `True`。
 
     建议在独立虚拟环境中安装 GPU 版本，避免与 CPU 版本冲突。
 
@@ -160,7 +164,8 @@
 
 4. 打包
 
-    打包配置保存在 `main.spec` ，打包时会根据构建环境是否已安装 `paddlepaddle-gpu` 自动收集对应的 GPU 动态库。
+    打包配置保存在 `main.spec` ，打包时会根据构建环境是否已安装 `onnxruntime-gpu` 自动收集对应的 GPU 动态库。
+    文字识别模型统一存放在 `models` 目录，首次运行时若缺失会自动下载。
 
     使用 `build.bat` 打包。打包完成会在当前目录下生成 `output` 文件夹。
 
@@ -243,11 +248,11 @@
 
 ## 感谢
 
-[PaddlePaddle/PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) 文字识别库
+[RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) 文字识别库
 
 [zhiyiYo/PyQt-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets/tree/PySide6) 基于 PySide6 的 Fluent Design 风格组件库
 
-[打包PaddleOCR项目](https://www.paddleocr.ai/latest/version3.x/inference_deployment/others/packaging.html) Paddle官方打包demo
+[打包RapidOCR项目](https://rapidai.github.io/RapidOCRDocs/main/install_usage/rapidocr/advance_deploy/rapidocr_package.html) RapidOCR 打包说明
 
 ## 开发者
 

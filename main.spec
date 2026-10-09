@@ -2,32 +2,29 @@
 import importlib.metadata
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_dynamic_libs
-from PyInstaller.utils.hooks import copy_metadata
 
 datas = []
 binaries = []
 
+# RapidOCR 资源：模型清单、默认配置、字典等
+# 排除随包分发的默认模型（PP-OCRv6 small，约 31MB）：运行时统一使用 models 目录下的
+# 模型文件，由 Global.model_root_dir 指定，不会读取包内 models
+datas += [
+    entry
+    for entry in collect_data_files('rapidocr')
+    if not entry[0].lower().endswith('.onnx')
+]
+
+# ONNX Runtime 原生库
 try:
-    import paddlex
-    from paddlex.utils.deps import BASE_DEP_SPECS
-    deps_all = list(BASE_DEP_SPECS.keys())
-except ImportError:
-    raise RuntimeError("paddlex not installed or BASE_DEP_SPECS not found. Please install paddlex first.")
+    importlib.metadata.version("onnxruntime-gpu")
+    binaries += collect_dynamic_libs('onnxruntime-gpu')
+except Exception:
+    binaries += collect_dynamic_libs('onnxruntime')
 
-deps_need = deps_all
-for dep in deps_need:
-    try:
-        datas += copy_metadata(dep)
-    except Exception as e:
-        print(f"Warning: Failed to copy metadata for '{dep}': {e}")
-
-datas += collect_data_files('paddlex')
-
-binaries += collect_dynamic_libs('paddle')
-
-# GPU
+# GPU 版：收集 nvidia 动态库
 try:
-    importlib.metadata.version("paddlepaddle-gpu")
+    importlib.metadata.version("onnxruntime-gpu")
     binaries += collect_dynamic_libs('nvidia')
 except Exception:
     pass

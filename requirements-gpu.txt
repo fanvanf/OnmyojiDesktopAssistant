@@ -1,25 +1,29 @@
 # GPU variant requirements
-# This requirements file adds the Paddle GPU package and provides a suitable index.
-# Recommended usage:
-#  - Use a fresh virtual environment (recommended): python -m venv .venv-gpu && .venv-gpu\Scripts\activate
-#  - Uninstall CPU paddle if already present:
-#      pip uninstall -y paddlepaddle
+# This requirements file swaps the CPU `onnxruntime` for `onnxruntime-gpu`.
+#
+# WARNING: `onnxruntime` and `onnxruntime-gpu` ship the same files and cannot
+# coexist in one environment. Uninstall `onnxruntime` BEFORE installing the GPU
+# package, otherwise pip leaves a mixed/corrupted installation:
+#  - Uninstall CPU onnxruntime:
+#      pip uninstall -y onnxruntime
 #      # or if installed via uv
-#      uv pip uninstall -y paddlepaddle
-#  - Install packages using pip and the extra index for Paddle GPU (cu129 example):
-#      pip install -r requirements-gpu.txt --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu129/
+#      uv pip uninstall -y onnxruntime
+#  - Install packages using pip:
+#      pip install -r requirements-gpu.txt
 #  - Or using uv:
-#      uv pip install -r requirements-gpu.txt -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
-
-# Add Paddle GPU index as an extra index URL so pip will still consult PyPI
---extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu129/
+#      uv pip install -r requirements-gpu.txt
+#
+# The `onnxruntime-gpu` version must match your CUDA/cuDNN version.
+# See https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html
+#
+# After installing, GPU inference is enabled in `src/utils/rapidocr.py` by
+# setting `EngineConfig.onnxruntime.use_cuda` to True.
 
 httpx>=0.23.0
 numpy>=2.0.0,<2.4.0
-opencv-python==4.13.0.92
+onnxruntime-gpu==1.24.4
+opencv-python-headless==4.13.0.92
 packaging>=22.0
-paddleocr==3.7.0
-paddlepaddle-gpu==3.3.1
 pillow>=12.3.0
 psutil
 PyAutoGUI
@@ -29,6 +33,7 @@ PySide6>=6.10.1
 pyside6-fluent-widgets
 pywin32
 PyYAML==6.0.2
+rapidocr==3.10.0
 win11toast
 winshell
 

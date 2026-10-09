@@ -1,27 +1,18 @@
 # GPU variant requirements
-# This requirements file swaps the CPU `onnxruntime` for `onnxruntime-gpu`.
+# GPU 版使用 PaddlePaddle 推理（而非 ONNX Runtime），CPU 版使用 ONNX Runtime。
+# 程序启动时通过探测环境中是否存在 `paddle` 包自动选择引擎：
+# 有则走 PaddlePaddle + CUDA，无则回退 ONNX Runtime + CPU。
 #
-# WARNING: `onnxruntime` and `onnxruntime-gpu` ship the same files and cannot
-# coexist in one environment. Uninstall `onnxruntime` BEFORE installing the GPU
-# package, otherwise pip leaves a mixed/corrupted installation:
-#  - Uninstall CPU onnxruntime:
-#      pip uninstall -y onnxruntime
-#      # or if installed via uv
-#      uv pip uninstall -y onnxruntime
-#  - Install packages using pip:
-#      pip install -r requirements-gpu.txt
-#  - Or using uv:
-#      uv pip install -r requirements-gpu.txt
+# 推荐在独立虚拟环境中安装 GPU 版本，与 CPU 版互不影响：
+#     python -m venv .venv-gpu && .venv-gpu\Scripts\activate
 #
-# The `onnxruntime-gpu` version must match your CUDA/cuDNN version.
-# See https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html
-#
-# After installing, GPU inference is enabled in `src/utils/rapidocr.py` by
-# setting `EngineConfig.onnxruntime.use_cuda` to True.
+# `paddlepaddle-gpu` 版本需与本机 CUDA/cuDNN 匹配，
+# 参考 https://www.paddlepaddle.org.cn/install/quick
 
 httpx>=0.23.0
 numpy>=2.0.0,<2.4.0
-onnxruntime-gpu==1.24.4
+# GPU 版用 PaddlePaddle 推理，不装 onnxruntime
+paddlepaddle-gpu==3.2.2
 opencv-python-headless==4.13.0.92
 packaging>=22.0
 pillow>=12.3.0

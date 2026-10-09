@@ -3,13 +3,13 @@ from typing import Literal
 
 import numpy as np
 from PIL import Image
-from rapidocr.utils.typings import ModelType, OCRVersion
+from rapidocr.utils.typings import EngineType, ModelType, OCRVersion
 
 from .assets import AssetOcr
 from .coordinate import get_scale, scale_region
 from .log import logger
 from .point import Point, Rectangle
-from .rapid_model import LANG_TYPE, MODEL_TYPE, OCR_VERSION, auto_download
+from .rapid_model import LANG_TYPE, MODEL_TYPE, OCR_VERSION, PADDLE_ENGINE, auto_download
 from .screenshot import ScreenShot
 from .window import window_manager
 
@@ -35,28 +35,65 @@ RapidOCR 的 onnx 模型输入维度是动态的，线程数过多时 ORT 的线
 实测线程数 ≥8 时单次识别耗时劣化一个数量级，故固定为 4（低配机器也不会过度并行）。
 """
 
-ENGINE_PARAMS: dict = {
-    "Global.use_det": True,
-    "Global.use_cls": False,
-    "Global.use_rec": True,
-    "Global.text_score": TEXT_SCORE,
-    # 模型选择必须显式传入，否则 RapidOCR 会退回其 config.yaml 的默认值，
-    # 导致与 rapid_model 校验/下载的模型不是同一套。
-    # 注意：RapidOCR 要求 ocr_version / model_type 是 Enum，不能传字符串
-    "Det.ocr_version": OCRVersion(OCR_VERSION),
-    "Det.model_type": ModelType(MODEL_TYPE),
-    "Det.lang_type": LANG_TYPE,
-    "Rec.ocr_version": OCRVersion(OCR_VERSION),
-    "Rec.model_type": ModelType(MODEL_TYPE),
-    "Rec.lang_type": LANG_TYPE,
-    "Det.thresh": DET_THRESH,
-    "Det.box_thresh": DET_BOX_THRESH,
-    "Det.unclip_ratio": DET_UNCLIP_RATIO,
-    "Det.limit_type": "max",
-    "Det.limit_side_len": DET_LIMIT_SIDE_LEN,
+ONNXRUNTIME_ENGINE_PARAMS: dict = {
     "EngineConfig.onnxruntime.enable_cpu_mem_arena": True,
     "EngineConfig.onnxruntime.intra_op_num_threads": ONNX_INTRA_OP_NUM_THREADS,
 }
+"""ONNX Runtime 引擎参数"""
+
+PADDLE_ENGINE_PARAMS: dict = {
+    "EngineConfig.paddle.use_cuda": True,
+    "EngineConfig.paddle.cuda_ep_cfg.device_id": 0,
+    "EngineConfig.paddle.cuda_ep_cfg.gpu_mem": 500,
+}
+"""PaddlePaddle 引擎参数，GPU 版使用 CUDA 加速"""
+
+
+def build_engine_params() -> dict:
+    """按当前引擎组装 RapidOCR 推理参数
+
+    - PaddlePaddle 引擎：Det/Rec 均指定 `EngineType.PADDLE`，并开启 CUDA
+    - ONNX Runtime 引擎：使用默认引擎，额外调整内存分配与线程数
+
+    模型选择（`ocr_version` / `model_type` / `lang_type`）必须显式传入，
+    否则 RapidOCR 会退回其 `config.yaml` 的默认值，导致与 `rapid_model`
+    校验/下载的模型不是同一套。注意 RapidOCR 要求前两个是 Enum，不能传字符串。
+
+    Returns:
+        dict: RapidOCR `params`
+    """
+    from .rapid_model import ENGINE_TYPE
+
+    engine_type = EngineType(ENGINE_TYPE)
+    params = {
+        "Global.use_det": True,
+        "Global.use_cls": False,
+        "Global.use_rec": True,
+        "Global.text_score": TEXT_SCORE,
+        "Det.engine_type": engine_type,
+        "Det.ocr_version": OCRVersion(OCR_VERSION),
+        "Det.model_type": ModelType(MODEL_TYPE),
+        "Det.lang_type": LANG_TYPE,
+        "Rec.engine_type": engine_type,
+        "Rec.ocr_version": OCRVersion(OCR_VERSION),
+        "Rec.model_type": ModelType(MODEL_TYPE),
+        "Rec.lang_type": LANG_TYPE,
+        "Det.thresh": DET_THRESH,
+        "Det.box_thresh": DET_BOX_THRESH,
+        "Det.unclip_ratio": DET_UNCLIP_RATIO,
+        "Det.limit_type": "max",
+        "Det.limit_side_len": DET_LIMIT_SIDE_LEN,
+    }
+
+    if ENGINE_TYPE == PADDLE_ENGINE:
+        params.update(PADDLE_ENGINE_PARAMS)
+    else:
+        params.update(ONNXRUNTIME_ENGINE_PARAMS)
+
+    return params
+
+
+ENGINE_PARAMS: dict = build_engine_params()
 """RapidOCR 推理参数，检测阈值沿用原 PaddleOCR 的 `det_db_*` 取值以保持识别行为一致"""
 
 
@@ -74,6 +111,7 @@ class OCRManager:
 
     def __init__(self):
         self.rapidocr = None  # RapidOCR 引擎实例，非 None 表示已初始化
+        self.engine_type: str = ""  # 实际使用的引擎，供日志与排障
 
     def is_initialized(self) -> bool:
         """检查OCR是否已初始化"""
@@ -82,20 +120,26 @@ class OCRManager:
     def init(self) -> bool:
         """初始化OCR
 
+        引擎按环境自动选择：装有 `paddle` 包（GPU 版）走 PaddlePaddle + CUDA，
+        否则走 ONNX Runtime + CPU。
+
         Returns:
             bool: 初始化成功/已初始化返回 True
         """
         if self.is_initialized():
             return True
 
+        from .rapid_model import ENGINE_TYPE
+
         try:
             from rapidocr import RapidOCR
 
             from .application import MODEL_DIR_PATH
 
-            logger.ui(f"开始初始化文字识别模型[RapidOCR {OCR_VERSION} {MODEL_TYPE}]")
+            self.engine_type = ENGINE_TYPE
+            logger.ui(f"开始初始化文字识别模型[RapidOCR {OCR_VERSION} {MODEL_TYPE} / {ENGINE_TYPE}]")
             t_start = time.perf_counter()
-            params = dict(ENGINE_PARAMS)
+            params = build_engine_params()
             # 模型统一存放在项目的 models 目录下
             params["Global.model_root_dir"] = str(MODEL_DIR_PATH)
             self.rapidocr = RapidOCR(params=params)
@@ -104,11 +148,11 @@ class OCRManager:
             self.rapidocr(np.zeros((32, 32, 3), dtype=np.uint8))
 
             t_end = time.perf_counter()
-            logger.ui(f"模型[RapidOCR]初始化成功，用时 {(t_end - t_start):.2f} 秒")
+            logger.ui(f"模型[RapidOCR {ENGINE_TYPE}]初始化成功，用时 {(t_end - t_start):.2f} 秒")
             return True
 
         except Exception as e:
-            logger.error(f"模型[RapidOCR {OCR_VERSION} {MODEL_TYPE}]初始化失败: {e}")
+            logger.error(f"模型[RapidOCR {OCR_VERSION} {MODEL_TYPE} / {ENGINE_TYPE}]初始化失败: {e}")
             raise
 
     def detect(self, image: Image.Image) -> list:

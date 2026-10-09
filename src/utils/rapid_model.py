@@ -1,4 +1,5 @@
 import hashlib
+import shutil
 from pathlib import Path
 
 import httpx
@@ -18,26 +19,71 @@ MODEL_TYPE: str = "small"
 LANG_TYPE: str = "ch"
 """识别语言，中英文"""
 
-ENGINE_TYPE: str = "onnxruntime"
-"""推理引擎"""
+PADDLE_ENGINE: str = "paddle"
+"""PaddlePaddle 引擎标识"""
+
+ONNXRUNTIME_ENGINE: str = "onnxruntime"
+"""ONNX Runtime 引擎标识"""
+
+ONNX_MODEL_FILES: tuple = ("SHA256",)
+"""ONNX Runtime 引擎：单个 `.onnx` 文件，校验和键为 `SHA256`"""
+
+PADDLE_MODEL_FILES: tuple = ("inference.json", "inference.pdiparams")
+"""PaddlePaddle 引擎：模型目录下的文件，校验和键与文件名同名"""
+
+
+def detect_engine() -> str:
+    """探测当前环境可用的推理引擎
+
+    环境中存在 `paddle` 包则说明是 GPU 版（`requirements-gpu.txt` 安装了 paddlepaddle-gpu），
+    走 PaddlePaddle + CUDA 推理；否则回退到 ONNX Runtime + CPU。
+
+    与旧实现一致，仍以 `Config._detect_gpu_mode()`（是否存在 `lib/nvidia` 目录）
+    作为“是否 GPU 版”的对外判定依据，本函数只决定 OCR 用哪个引擎。
+
+    Returns:
+        str: `paddle` 或 `onnxruntime`
+    """
+    try:
+        import paddle  # noqa: F401
+
+        return PADDLE_ENGINE
+    except ImportError:
+        return ONNXRUNTIME_ENGINE
+
+
+ENGINE_TYPE: str = detect_engine()
+"""实际使用的推理引擎，启动时根据环境自动判定"""
 
 
 class RapidModel:
     """RapidOCR 模型
 
-    每个模型是一个独立的 `.onnx` 文件，下载地址与校验和从 RapidOCR 自带的
-    `default_models.yaml` 中解析，避免与库版本脱节。
+    - ONNX Runtime 引擎：单个 `.onnx` 文件，如 `models/PP-OCRv6_det_small.onnx`
+    - PaddlePaddle 引擎：模型目录，如 `models/PP-OCRv6_det_small/inference.json`
+
+    下载地址与校验和从 RapidOCR 自带的 `default_models.yaml` 中解析，
+    避免与库版本脱节。
     """
 
     task_type: str = ""
     """模型任务类型，det 检测 / rec 识别"""
+
+    HTTP_TIMEOUT: int = 60
+    """HTTP 请求超时时间（秒）"""
+
+    CHUNK_SIZE: int = 8192
+    """下载文件时的块大小（字节）"""
+
+    PROGRESS_STEP: int = 10
+    """进度日志输出间隔（百分比）"""
 
     @classmethod
     def get_model_info(cls) -> dict:
         """从 RapidOCR 获取该模型的下载信息
 
         Returns:
-            dict: 含 `model_dir`(下载地址) 与 `SHA256`(校验和)
+            dict: 含 `model_dir`(下载地址) 与各文件的校验和
         """
         from rapidocr.inference_engine.base import FileInfo, InferSession
         from rapidocr.utils.typings import EngineType, ModelType, OCRVersion, TaskType
@@ -53,30 +99,67 @@ class RapidModel:
         )
 
     @classmethod
-    def get_model_path(cls) -> Path:
-        """模型在 `models` 目录下的存放路径
+    def get_model_dir(cls) -> Path:
+        """模型在 `models` 目录下的存放目录
 
         Returns:
-            Path: 模型文件路径
+            Path: 模型目录（ONNX 引擎下即模型文件所在目录）
         """
         info = cls.get_model_info()
         return MODEL_DIR_PATH / Path(info["model_dir"]).name
 
     @classmethod
+    def get_required_files(cls) -> tuple:
+        """当前引擎下需要哪些文件，以及各自的校验和键"""
+        if ENGINE_TYPE == PADDLE_ENGINE:
+            return PADDLE_MODEL_FILES
+        return ONNX_MODEL_FILES
+
+    @classmethod
+    def get_file_paths(cls) -> list:
+        """当前引擎下所有需要校验的文件路径"""
+        model_dir = cls.get_model_dir()
+        if ENGINE_TYPE == PADDLE_ENGINE:
+            return [model_dir / name for name in PADDLE_MODEL_FILES]
+        return [model_dir]
+
+    @classmethod
+    def get_dict_path(cls) -> Path | None:
+        """识别字典文件路径
+
+        ONNX 模型内嵌了字符表，无需字典；Paddle 模型不内嵌，
+        需从 `dict_url` 下载到模型目录。
+
+        Returns:
+            Path | None: 字典文件路径，无需字典时为 None
+        """
+        info = cls.get_model_info()
+        dict_url = info.get("dict_url")
+        if not dict_url:
+            return None
+        return cls.get_model_dir() / Path(dict_url).name
+
+    @classmethod
     def is_valid(cls) -> bool:
         """校验模型文件是否存在且完整"""
-        model_path = cls.get_model_path()
-        if not model_path.is_file():
-            logger.ui_error(f"{model_path.name} 不存在")
-            return False
+        model_name = cls.get_model_dir().name
+        info = cls.get_model_info()
 
-        expect_sha256 = cls.get_model_info().get("SHA256")
-        if expect_sha256 is None:
-            return True
+        for path in cls.get_file_paths():
+            if not path.is_file():
+                logger.ui_error(f"{model_name} 缺少文件: {path.name}")
+                return False
+            # ONNX 的校验和键是 SHA256，Paddle 的键与文件名同名
+            expect = info.get("SHA256") if path.name.endswith(".onnx") else info.get(path.name)
+            if expect is None:
+                continue
+            if cls.get_file_sha256(path) != expect:
+                logger.ui_error(f"{path.name} 校验失败，文件可能已损坏")
+                return False
 
-        actual_sha256 = cls.get_file_sha256(model_path)
-        if actual_sha256 != expect_sha256:
-            logger.ui_error(f"{model_path.name} 校验失败，文件可能已损坏")
+        dict_path = cls.get_dict_path()
+        if dict_path is not None and not dict_path.is_file():
+            logger.ui_error(f"{model_name} 缺少字典文件: {dict_path.name}")
             return False
 
         return True
@@ -89,30 +172,50 @@ class RapidModel:
             bool: 是否下载成功
         """
         info = cls.get_model_info()
-        model_path = cls.get_model_path()
-        model_name = model_path.name
+        model_dir = cls.get_model_dir()
 
-        logger.ui(f"下载 {model_name} 模型...")
-        if not cls._download_file(info["model_dir"], str(model_path)):
+        logger.ui(f"下载 {model_dir.name} 模型...")
+        if ENGINE_TYPE == PADDLE_ENGINE:
+            ok = cls._download_paddle_model(info, model_dir)
+        else:
+            ok = cls._download_onnx_model(info, model_dir)
+
+        if not ok:
             return False
 
         if not cls.is_valid():
-            model_path.unlink(missing_ok=True)
+            shutil.rmtree(model_dir, ignore_errors=True) if model_dir.is_dir() else model_dir.unlink(missing_ok=True)
             return False
 
         return True
 
-    HTTP_TIMEOUT: int = 60
-    """HTTP 请求超时时间（秒）"""
-
-    CHUNK_SIZE: int = 8192
-    """下载文件时的块大小（字节）"""
-
-    PROGRESS_STEP: int = 10
-    """进度日志输出间隔（百分比）"""
+    @classmethod
+    def _download_onnx_model(cls, info: dict, model_dir: Path) -> bool:
+        """下载 ONNX 模型（单个文件）"""
+        url = info["model_dir"]
+        return cls._download_file(url, str(model_dir), model_dir.name)
 
     @classmethod
-    def _download_file(cls, url: str, save_path: str) -> bool:
+    def _download_paddle_model(cls, info: dict, model_dir: Path) -> bool:
+        """下载 PaddlePaddle 模型（目录 + 多个文件 + 识别字典）"""
+        base_url = info["model_dir"].rstrip("/")
+        model_dir.mkdir(parents=True, exist_ok=True)
+
+        for name in PADDLE_MODEL_FILES:
+            url = f"{base_url}/{name}"
+            if not cls._download_file(url, str(model_dir / name), name, sha256=info.get(name)):
+                return False
+
+        dict_url = info.get("dict_url")
+        if dict_url:
+            dict_name = Path(dict_url).name
+            if not cls._download_file(dict_url, str(model_dir / dict_name), dict_name):
+                return False
+
+        return True
+
+    @classmethod
+    def _download_file(cls, url: str, save_path: str, name: str, sha256: str | None = None) -> bool:
         """下载文件（带进度条）"""
         try:
             with httpx.stream(
@@ -191,7 +294,7 @@ def check_models() -> bool:
         if not model.is_valid():
             return False
 
-    logger.info(f"{OCR_VERSION} 的模型文件完整")
+    logger.info(f"{OCR_VERSION} ({ENGINE_TYPE}) 的模型文件完整")
     return True
 
 
@@ -215,13 +318,13 @@ def auto_download() -> bool:
     Returns:
         bool: 模型是否可用
     """
-    logger.info(f"检查 {OCR_VERSION} 的模型文件...")
+    logger.info(f"检查 {OCR_VERSION} ({ENGINE_TYPE}) 的模型文件...")
 
     if check_models():
         logger.info("模型已存在且完整，无需下载")
         return True
 
-    logger.ui(f"模型不完整或不存在，开始下载 {OCR_VERSION} 的模型...")
+    logger.ui(f"模型不完整或不存在，开始下载 {OCR_VERSION} ({ENGINE_TYPE}) 的模型...")
     if not download_models():
         logger.ui_error(f"下载 {OCR_VERSION} 模型失败")
         return False

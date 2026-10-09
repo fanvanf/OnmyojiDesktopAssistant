@@ -121,31 +121,23 @@
 
     可选：GPU 安装（手动，非默认）
 
-    GPU 加速依赖 `onnxruntime-gpu`，它与 CPU 版 `onnxruntime` 占用相同文件，**不能共存**。
-    请先卸载 CPU 版，再安装 GPU 版：
+    GPU 版使用 **PaddlePaddle** 推理（CPU 版使用 ONNX Runtime）。
+    程序启动时自动探测：环境中存在 `paddle` 包就走 PaddlePaddle + CUDA，
+    否则回退 ONNX Runtime + CPU，**无需手动切换任何配置**。
+
+    `paddlepaddle-gpu` 版本需与本机 CUDA/cuDNN 匹配，
+    参考 https://www.paddlepaddle.org.cn/install/quick 。
 
     ```bash
-    # 使用 uv 卸载 CPU 版本
-    uv pip uninstall -y onnxruntime
+    # 建议在独立虚拟环境中安装 GPU 版本，避免与 CPU 版依赖冲突
+    python -m venv .venv-gpu && .venv-gpu\Scripts\activate
 
-    # 使用 pip 卸载 CPU 版本
-    pip uninstall -y onnxruntime
-    ```
-
-    然后安装 `requirements-gpu.txt`（`onnxruntime-gpu` 版本需与本机 CUDA/cuDNN 匹配，
-    参考 https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html ）：
-
-    ```bash
     # 使用 uv 安装 gpu 依赖
     uv pip install -r requirements-gpu.txt
 
     # 使用 pip 安装 gpu 依赖
     pip install -r requirements-gpu.txt
     ```
-
-    安装后需在 `src/utils/rapidocr.py` 中将 `EngineConfig.onnxruntime.use_cuda` 设为 `True`。
-
-    建议在独立虚拟环境中安装 GPU 版本，避免与 CPU 版本冲突。
 
 3. 运行/调试
 

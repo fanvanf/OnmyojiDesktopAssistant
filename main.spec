@@ -15,19 +15,23 @@ datas += [
     if not entry[0].lower().endswith('.onnx')
 ]
 
-# ONNX Runtime 原生库
+# 推理引擎原生库：GPU 版用 PaddlePaddle，CPU 版用 ONNX Runtime
+# 两者只会有一个存在（见 requirements-gpu.txt），故按存在性收集
+is_gpu = False
 try:
-    importlib.metadata.version("onnxruntime-gpu")
-    binaries += collect_dynamic_libs('onnxruntime-gpu')
-except Exception:
-    binaries += collect_dynamic_libs('onnxruntime')
-
-# GPU 版：收集 nvidia 动态库
-try:
-    importlib.metadata.version("onnxruntime-gpu")
+    importlib.metadata.version("paddlepaddle-gpu")
+    is_gpu = True
+    binaries += collect_dynamic_libs('paddle')
+    binaries += collect_data_files('paddle', include_py_files=True)
     binaries += collect_dynamic_libs('nvidia')
 except Exception:
     pass
+
+if not is_gpu:
+    try:
+        binaries += collect_dynamic_libs('onnxruntime')
+    except Exception:
+        pass
 
 a = Analysis(
     ['main.py'],

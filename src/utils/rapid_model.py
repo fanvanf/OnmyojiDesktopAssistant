@@ -1,4 +1,5 @@
 import hashlib
+import importlib.metadata
 import shutil
 from pathlib import Path
 
@@ -25,6 +26,12 @@ PADDLE_ENGINE: str = "paddle"
 ONNXRUNTIME_ENGINE: str = "onnxruntime"
 """ONNX Runtime 引擎标识"""
 
+PADDLE_GPU_DIST: str = "paddlepaddle-gpu"
+"""GPU 版 PaddlePaddle 的发行包名，作为 GPU 版判据
+
+CPU 版包名为 `paddlepaddle`，两者都提供 `paddle` 模块，故只能按包名区分。
+"""
+
 ONNX_MODEL_FILES: tuple = ("SHA256",)
 """ONNX Runtime 引擎：单个 `.onnx` 文件，校验和键为 `SHA256`"""
 
@@ -35,21 +42,24 @@ PADDLE_MODEL_FILES: tuple = ("inference.json", "inference.pdiparams")
 def detect_engine() -> str:
     """探测当前环境可用的推理引擎
 
-    环境中存在 `paddle` 包则说明是 GPU 版（`requirements-gpu.txt` 安装了 paddlepaddle-gpu），
-    走 PaddlePaddle + CUDA 推理；否则回退到 ONNX Runtime + CPU。
+    以**发行包名** `paddlepaddle-gpu` 是否存在作为 GPU 版判据：只有装了 GPU 版
+    PaddlePaddle 才走 PaddlePaddle + CUDA，否则回退 ONNX Runtime + CPU。
 
-    与旧实现一致，仍以 `Config._detect_gpu_mode()`（是否存在 `lib/nvidia` 目录）
-    作为“是否 GPU 版”的对外判定依据，本函数只决定 OCR 用哪个引擎。
+    注意不能用 `import paddle` 判断——CPU 版 `paddlepaddle` 同样提供 `paddle`
+    模块，用它判断会把纯 CPU 的 PaddlePaddle 误判为 GPU 版，导致
+    `EngineConfig.paddle.use_cuda=True` 下初始化失败。
+
+    与旧实现一致，UI 上的“是否 GPU 版”仍以 `Config._detect_gpu_mode()`
+    （是否存在 `lib/nvidia` 目录）为准，本函数只决定 OCR 用哪个引擎。
 
     Returns:
         str: `paddle` 或 `onnxruntime`
     """
     try:
-        import paddle  # noqa: F401
-
-        return PADDLE_ENGINE
-    except ImportError:
+        importlib.metadata.version(PADDLE_GPU_DIST)
+    except importlib.metadata.PackageNotFoundError:
         return ONNXRUNTIME_ENGINE
+    return PADDLE_ENGINE
 
 
 ENGINE_TYPE: str = detect_engine()

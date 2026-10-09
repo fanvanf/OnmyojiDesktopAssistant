@@ -2,6 +2,7 @@
 import importlib.metadata
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import copy_metadata
 
 datas = []
 binaries = []
@@ -24,6 +25,12 @@ try:
     binaries += collect_dynamic_libs('paddle')
     binaries += collect_data_files('paddle', include_py_files=True)
     binaries += collect_dynamic_libs('nvidia')
+    # 一并带上发行包元数据：GPU 判据以 lib/nvidia 目录为主，
+    # 若该目录缺失还能回退查包名，而查包名依赖 dist-info 被一起打包
+    try:
+        datas += copy_metadata('paddlepaddle-gpu')
+    except Exception as e:
+        print(f"Warning: Failed to copy metadata for 'paddlepaddle-gpu': {e}")
 except Exception:
     pass
 

@@ -96,7 +96,7 @@ class ScreenShot:
         _end = time.perf_counter()
         self.time_cost = round((_end - _start) * 1000, 2)
         if self._log:
-            logger.info(f"screenshot front cost {self.time_cost} ms, {window_rect}")
+            logger.info(f"screenshot front cost {self.time_cost:.2f} ms, {window_rect}")
         if self._debug:
             image.show()
         self._image = image
@@ -131,7 +131,7 @@ class ScreenShot:
         self._bgr = img[t:b, l:r]
         self.time_cost = round((time.perf_counter() - _start) * 1000, 2)
         if self._log:
-            logger.info(f"screenshot mumu cost {self.time_cost} ms, {self.rect}")
+            logger.info(f"screenshot mumu cost {self.time_cost:.2f} ms, {self.rect}")
 
     def _screenshot_backend(
         self,
@@ -214,14 +214,14 @@ class ScreenShot:
         _end = time.perf_counter()
         self.time_cost = round((_end - _start) * 1000, 2)
         if self._log:
-            logger.info(f"screenshot backend [{method}] cost {self.time_cost} ms, {client_rect}")
+            logger.info(f"screenshot backend [{method}] cost {self.time_cost:.2f} ms, {client_rect}")
         if self._debug:
             self.get_image().show()
         return self._bgr
 
     def save(self, file, *args, **kwargs) -> None:
         self.get_image().save(file, *args, **kwargs)
-        logger.info(f"screenshot cost {self.time_cost} ms, at {file}")
+        logger.info(f"screenshot cost {self.time_cost:.2f} ms, at {file}")
 
     def get_image(self) -> Image.Image:
         """获取 PIL 图像（惰性：后台优先用原始缓冲重建）"""

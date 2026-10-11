@@ -47,9 +47,9 @@
 - `check_click` 传入非法素材类型时直接返回 False，不再空转
 - `check_assets` 补充 `ocr_data` 校验（name 非空且不重复、keyword 类型与内容、region 格式），素材写错在启动期暴露而不是运行到一半才 `AttributeError`
 - `GlobalTask` 停止等待由 1 秒延长到 5 秒并记录未退出状态；任务异常的 traceback 改为正确渲染而不是 Python list repr
+- 启用`MuMu 模拟器支持`功能前添加说明弹窗
 
 ## v2.1.7 - 2026-10-09
-
 ### 修复
 
 - 修复后台拖动缩放偏移量为 float 导致的崩溃问题

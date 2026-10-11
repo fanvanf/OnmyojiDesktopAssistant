@@ -242,6 +242,57 @@
 
     例如需要使用自定义的 `/resource/huodong/title.png` 文件，则新建 `/data/myresource/huodong/title.png` 即可。程序将优先使用用户给定的自定义素材。
 
+## 参与开发
+
+### 依赖管理
+
+`pyproject.toml` 是依赖的**唯一权威来源**，`requirements.txt` / `requirements-gpu.txt` 由它生成，不要手改：
+
+```bash
+uv run python tools/sync_requirements.py          # 重新生成
+uv run python tools/sync_requirements.py --check   # 只校验，漂移则退出码 1
+```
+
+CI 与 `tests/test_requirements_sync.py` 都会校验。
+
+### Fork 仓库的同步流程
+
+本仓库是 fork，remote 约定如下（**命名反了最容易误推，务必确认**）：
+
+| remote    | 指向               | 用途                       |
+| --------- | ------------------ | -------------------------- |
+| `origin`   | 你的 fork           | 推送目标                   |
+| `upstream` | 原始仓库           | 只读，仅用于同步上游改动   |
+
+一次性设置：
+
+```bash
+git remote add upstream https://github.com/AquamarineCyan/OnmyojiDesktopAssistant.git
+```
+
+同步上游改动：
+
+```bash
+tools/sync_upstream.sh              # 抓取 + 审阅 + 冲突预演（不改工作区）
+tools/sync_upstream.sh --no-fetch   # 不联网，用已有引用审阅
+```
+
+脚本会依次输出：**分叉点**、**双方领先/落后几个提交**、**上游新增提交及其改动文件**、
+**合并后你的净差异**、**冲突文件清单**（用 `git merge-tree` 预演，不动工作区）。
+
+确认无误后：
+
+```bash
+git merge upstream/main
+# 有冲突就逐个解决，然后：
+uv run pytest tests -q -m "not network"
+uv run python tools/sync_requirements.py --check
+tools/sync_upstream.sh --apply      # 验证通过后完成提交与推送
+```
+
+也可以直接在 GitHub 网页上用 fork 页面的 **Sync fork** 按钮，它等价于
+`git merge upstream/main`，冲突同样需要本地解决。
+
 ## 感谢
 
 [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) 文字识别库

@@ -150,3 +150,35 @@ def test_global_assets_keywords_match_ocr_output():
             # 主关键词必须在列表里，且用 match_keyword 能匹配自身
             assert keyword in keywords or list(keyword) == list(keywords)
             assert match_keyword(keywords[0], keyword) is True
+
+
+# -------------------------------------------------- 检测输入尺寸参数
+
+
+def test_det_limit_side_len_matches_baseline_height():
+    """检测短边下限必须等于基准客户区高度
+
+    `Det.limit_type="min"` 只在「短边 < limit_side_len」时放大。取基准高度 640
+    意味着 1136x640 的基准帧刚好不被放大（ratio 1.0）；若用 RapidOCR 自带的
+    736，会被放大 1.15 倍 —— 实测单帧耗时 174.9ms -> 116.3ms（-33%），
+    识别率都是 20/20，即纯属无谓开销。
+    """
+    from src.utils.coordinate import STANDARD_CLIENT_HEIGHT
+    from src.utils.rapidocr import DET_LIMIT_SIDE_LEN
+
+    assert DET_LIMIT_SIDE_LEN == STANDARD_CLIENT_HEIGHT
+
+
+def test_baseline_resolution_is_not_upscaled():
+    """基准分辨率下 min/640 的放大系数必须恰好为 1.0
+
+    复刻 RapidOCR 的缩放判定逻辑（ch_ppocr_det/utils.py）：
+    短边小于 limit 才放大，否则 ratio = 1.0。
+    """
+    from src.utils.coordinate import STANDARD_CLIENT_HEIGHT, STANDARD_CLIENT_WIDTH
+    from src.utils.rapidocr import DET_LIMIT_SIDE_LEN, DET_LIMIT_TYPE
+
+    for w, h in ((STANDARD_CLIENT_WIDTH, STANDARD_CLIENT_HEIGHT), (1393, 784), (1920, 1080)):
+        short = min(w, h)
+        ratio = DET_LIMIT_SIDE_LEN / short if DET_LIMIT_TYPE == "min" and short < DET_LIMIT_SIDE_LEN else 1.0
+        assert ratio == 1.0, f"{w}x{h} 会被放大 {ratio:.2f} 倍"

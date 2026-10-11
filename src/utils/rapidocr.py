@@ -2,7 +2,7 @@
 rapid_ocr.py —— RapidOCR 模块（与 benchmark 对齐的优化版）
 优化点：
   [O1] OMP/线程环境变量在 import rapidocr 之前设置，绑定物理核
-  [O2] 检测输入短边下限 736
+  [O2] 检测输入短边下限取基准高度 640，基准分辨率不再被无谓放大
   [O3] 关闭 CLS（文字方向固定场景）
   [O4] 预热用 720×1280 空图跑 2 次
   [O5] 走 ScreenShot.get_bgr()，避免每帧 PIL→NumPy 转换
@@ -76,8 +76,24 @@ DET_UNCLIP_RATIO: float = 1.6
 """检测框扩张系数"""
 
 
-DET_LIMIT_SIDE_LEN: int = 736
-"""检测输入短边下限；配合 `Det.limit_type=min`，小于该值的短边会被放大"""
+DET_LIMIT_TYPE: str = "min"
+"""检测输入缩放方式：`min` 只放大短边不足的部分，`max` 则按长边封顶
+
+保持 `min` 是刻意的：`max` 能给大窗口封顶（模拟器拉到 4K 时省算力），
+但也会缩小基准帧、可能影响小字识别率，属于需要单独实测的取舍。
+"""
+
+DET_LIMIT_SIDE_LEN: int = 640
+"""检测输入短边下限；配合 `Det.limit_type=min`，短边小于该值时按比例放大
+
+640 即基准客户区高度（`coordinate.STANDARD_CLIENT_HEIGHT`）。取基准值而不是
+RapidOCR 自带的 736，是为了让基准分辨率（1136x640）刚好不被放大：
+短边 640 不小于 640 → ratio 1.0 → 原图直送检测，省掉 1.15 倍的无谓重采样。
+
+注意 `limit_type="min"` 只会放大、不会缩小，因此这个值**不封顶**大窗口 ——
+模拟器拉到 1920x1080 或 4K 时检测输入仍是原始尺寸。要封顶需要改用
+`limit_type="max"`（属于取舍，会改变识别行为，需实测后单独改）。
+"""
 
 USE_CLS: bool = False
 """是否启用文字方向分类模型；固定朝向 UI 场景关闭可省一份推理"""
@@ -133,8 +149,8 @@ def build_engine_params() -> dict:
         "Det.thresh": DET_THRESH,
         "Det.box_thresh": DET_BOX_THRESH,
         "Det.unclip_ratio": DET_UNCLIP_RATIO,
-        "Det.limit_type": "min",
-        "Det.limit_side_len": DET_LIMIT_SIDE_LEN,   # [O2] = 736
+        "Det.limit_type": DET_LIMIT_TYPE,
+        "Det.limit_side_len": DET_LIMIT_SIDE_LEN,   # [O2] = 640
     }
 
     if ENGINE_TYPE == PADDLE_ENGINE:
